@@ -17,7 +17,10 @@ export default function VoiceChat() {
   const messagesEndRef = useRef(null);
   const chatInitRef = useRef(false);
 
-  const { isListening, transcript, interimTranscript, startListening, stopListening, isSupported } = useSpeechRecognition();
+  const { 
+    isListening, isWakeWordMode, transcript, interimTranscript, 
+    startListening, stopListening, startWakeWordDetection, isSupported 
+  } = useSpeechRecognition();
   const { isSpeaking, speak, stop: stopSpeaking } = useTextToSpeech();
 
   // Scroll to bottom
@@ -40,18 +43,25 @@ export default function VoiceChat() {
       setSessionData(session);
 
       // Add AI greeting
-      const greeting = `Great choice! ${topic.starter} Take your time and speak naturally — I am here to help you practise!`;
+      const greeting = `Hi! I'm Angelina. ${topic.starter} I'm ready when you are — just say "Hey Angelina" to start!`;
       setMessages([{
         id: 'm_0', role: 'ai', text: greeting,
         feedback: null, pronunciation: null,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
       setStatus('playing');
-      speak(greeting, () => setStatus('ready'));
+      speak(greeting, () => {
+        setStatus('ready');
+        // Start listening for wake word after greeting
+        startWakeWordDetection(() => {
+          stopSpeaking();
+          startListening();
+        });
+      });
     } catch (e) {
       setMessages([{ id: 'm_err', role: 'ai', text: `Error: ${e.message}. Please check your API key in Settings.`, feedback: null, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
     }
-  }, [topic, mode, navigate, speak]);
+  }, [topic, mode, navigate, speak, startListening, startWakeWordDetection, stopSpeaking]);
 
   // Update status based on listening/speaking
   useEffect(() => {
@@ -107,7 +117,11 @@ export default function VoiceChat() {
 
       // Speak AI reply
       setStatus('playing');
-      speak(response.reply, () => setStatus('ready'));
+      speak(response.reply, () => {
+        setStatus('ready');
+        // Auto-start listening for user's NEXT turn (modern hands-free flow)
+        startListening();
+      });
     } catch (e) {
       setMessages(prev => [...prev, {
         id: `m_err_${Date.now()}`, role: 'ai',
@@ -265,11 +279,12 @@ export default function VoiceChat() {
         </div>
 
         {/* Status Bar */}
-        <div className={`status-bar ${status}`}>
-          {status === 'ready' && '● Ready'}
-          {status === 'listening' && '🔴 Listening...'}
-          {status === 'thinking' && '🟡 AI is thinking...'}
-          {status === 'playing' && '🔵 Speaking...'}
+        <div className={`status-bar ${status} ${isWakeWordMode ? 'wakeword' : ''}`}>
+          {isWakeWordMode && '✨ Listening for "Hey Angelina"...'}
+          {!isWakeWordMode && status === 'ready' && '● Ready'}
+          {!isWakeWordMode && status === 'listening' && '🔴 Angelina is listening...'}
+          {!isWakeWordMode && status === 'thinking' && '🟡 Angelina is thinking...'}
+          {!isWakeWordMode && status === 'playing' && '🔵 Angelina is speaking...'}
         </div>
       </div>
     </div>

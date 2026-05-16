@@ -2,14 +2,17 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 
 export function useSpeechRecognition() {
   const [isListening, setIsListening] = useState(false);
+  const [isWakeWordMode, setIsWakeWordMode] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
   const [error, setError] = useState(null);
   const [isSupported, setIsSupported] = useState(true);
+  
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
   const interimRef = useRef('');
   const onStopCallbackRef = useRef(null);
+  const onWakeWordDetectedRef = useRef(null);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -35,6 +38,19 @@ export function useSpeechRecognition() {
           interim += result[0].transcript;
         }
       }
+      
+      const fullText = (final + interim).toLowerCase();
+      
+      // Check for Wake Word "Hey Angelina" or "Angelina"
+      if (onWakeWordDetectedRef.current && (fullText.includes('angelina') || fullText.includes('hey angelina'))) {
+        const callback = onWakeWordDetectedRef.current;
+        onWakeWordDetectedRef.current = null; // Prevent double trigger
+        setIsWakeWordMode(false);
+        recognition.stop();
+        setTimeout(() => callback(), 100);
+        return;
+      }
+
       finalTranscriptRef.current = final.trim();
       interimRef.current = interim;
       setTranscript(final.trim());
@@ -42,15 +58,29 @@ export function useSpeechRecognition() {
     };
 
     recognition.onerror = (event) => {
-      if (event.error === 'no-speech') return;
+      if (event.error === 'no-speech') {
+        if (onWakeWordDetectedRef.current) {
+          // In wake word mode, just restart if no speech detected
+          try { recognition.stop(); } catch {}
+        }
+        return;
+      }
       if (event.error === 'aborted') return;
       setError(`Speech recognition error: ${event.error}`);
       setIsListening(false);
+      setIsWakeWordMode(false);
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      // When recognition ends, combine final + interim as the complete text
+      
+      // If we are in wake word mode, restart automatically
+      if (onWakeWordDetectedRef.current) {
+        try { recognition.start(); setIsListening(true); } catch {}
+        return;
+      }
+
+      // When normal recognition ends, combine final + interim as the complete text
       const completeText = (finalTranscriptRef.current + ' ' + interimRef.current).trim();
       if (onStopCallbackRef.current && completeText) {
         onStopCallbackRef.current(completeText);
@@ -70,6 +100,8 @@ export function useSpeechRecognition() {
     finalTranscriptRef.current = '';
     interimRef.current = '';
     onStopCallbackRef.current = null;
+    onWakeWordDetectedRef.current = null;
+    setIsWakeWordMode(false);
     try {
       recognitionRef.current.start();
       setIsListening(true);
@@ -83,10 +115,41 @@ export function useSpeechRecognition() {
 
   const stopListening = useCallback((onComplete) => {
     if (!recognitionRef.current) return;
-    // Register callback for when recognition fully stops
     onStopCallbackRef.current = onComplete || null;
+    onWakeWordDetectedRef.current = null;
+    setIsWakeWordMode(false);
     try { recognitionRef.current.stop(); } catch {}
   }, []);
 
-  return { isListening, transcript, interimTranscript, error, isSupported, startListening, stopListening };
+  const startWakeWordDetection = useCallback((onDetected) => {
+    if (!recognitionRef.current) return;
+    setError(null);
+    setTranscript('');
+    setInterimTranscript('');
+    finalTranscriptRef.current = '';
+    interimRef.current = '';
+    onWakeWordDetectedRef.current = onDetected;
+    setIsWakeWordMode(true);
+    try {
+      recognitionRef.current.start();
+      setIsListening(true);
+    } catch (e) {
+      try { recognitionRef.current.stop(); } catch {}
+      setTimeout(() => {
+        try { recognitionRef.current.start(); setIsListening(true); } catch {}
+      }, 100);
+    }
+  }, []);
+
+  return { 
+    isListening, 
+    isWakeWordMode,
+    transcript, 
+    interimTranscript, 
+    error, 
+    isSupported, 
+    startListening, 
+    stopListening,
+    startWakeWordDetection 
+  };
 }

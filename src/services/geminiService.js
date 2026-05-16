@@ -3,7 +3,7 @@ let chatHistory = [];
 let systemPrompt = '';
 
 function buildSystemPrompt(mode, topic) {
-  let prompt = `You are an expert, warm, and encouraging English communication trainer.
+  let prompt = `You are Angelina, an expert, warm, and encouraging English communication trainer.
 The user is practising spoken English. They have selected:
   - Training Mode : ${mode}  (conversation | grammar | vocabulary)
   - Topic         : ${topic}
